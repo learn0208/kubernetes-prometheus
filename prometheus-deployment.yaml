@@ -1,0 +1,115 @@
+apiVersion: rbac.authorization.k8s.io/v1beta1  
+kind: ClusterRole  
+metadata:  
+  name: prometheus  
+rules:  
+- apiGroups: [""]  
+  resources:  
+  - nodes  
+  - services  
+  - endpoints  
+  - pods  
+  verbs: ["get", "list", "watch"]  
+- apiGroups: [""]  
+  resources:  
+  - configmaps  
+  verbs: ["get"]  
+- nonResourceURLs: ["/metrics"]  
+  verbs: ["get"]  
+---  
+apiVersion: v1  
+kind: ServiceAccount  
+metadata:  
+  name: prometheus-k8s  
+  namespace: monitoring  
+---  
+apiVersion: rbac.authorization.k8s.io/v1beta1  
+kind: ClusterRoleBinding  
+metadata:  
+  name: prometheus  
+roleRef:  
+  apiGroup: rbac.authorization.k8s.io  
+  kind: ClusterRole  
+  name: prometheus  
+subjects:  
+- kind: ServiceAccount  
+  name: prometheus-k8s  
+  namespace: monitoring  
+---  
+apiVersion: extensions/v1beta1  
+kind: Deployment  
+metadata:  
+  name: prometheus-core  
+  namespace: monitoring  
+  labels:  
+    app: prometheus  
+    component: core  
+spec:  
+  replicas: 1  
+  template:  
+    metadata:  
+      name: prometheus-main  
+      labels:  
+        app: prometheus  
+        component: core  
+    spec:  
+      serviceAccountName: prometheus-k8s  
+      nodeSelector:
+        deploy_env: product 
+      containers:  
+      - name: prometheus  
+        image: quay.io/prometheus/prometheus:v1.7.0  
+        args:  
+          - '-storage.local.retention=24h'  
+          - '-storage.local.memory-chunks=500000'  
+          - '-config.file=/etc/prometheus/prometheus.yaml'  
+        ports:  
+        - name: web-ui  
+          containerPort: 9090  
+        resources:  
+          requests:  
+            cpu: 500m  
+            memory: 500M  
+          limits:  
+            cpu: 4000m  
+            memory: 8000M  
+        volumeMounts:  
+        - name: config-volume  
+          mountPath: /etc/prometheus  
+      volumes:  
+      - name: config-volume  
+        configMap:  
+          name: prometheus-core 
+---  
+apiVersion: v1  
+kind: Service  
+metadata:  
+  name: prometheus  
+  namespace: monitoring  
+  labels:  
+    app: prometheus  
+    component: core  
+  annotations:  
+    prometheus.io/scrape: 'true'  
+spec: 
+  ports:  
+    - port: 9090  
+      protocol: TCP
+  selector:  
+    app: prometheus  
+    component: core
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: prometheus-ingress
+  namespace: monitoring
+spec:
+  rules:
+  - host: prometheus.product.cmp
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: prometheus
+          servicePort: 9090
